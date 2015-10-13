@@ -3,6 +3,6 @@ applications:
   memory: 256M
   instances: 1
   domain: eu-gb.mybluemix.net
-  name: no2-phonesensor
-  host: no2-phonesensor
+  name: no-phonesensor
+  host: no-phonesensor
   disk_quota: 1024M
