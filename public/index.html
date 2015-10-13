@@ -1,27 +1,330 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en"> 
+<head>
+	<meta charset="UTF-8">
+	<title></title>
+	<meta name="viewport" content="width=device-width; initial-scale=1.0; maximum-scale=1.0; user-scalable=0;"/>
+	<style type="text/css">
+		body {
+			font-family: sans-serif;
+		}
+	
+		.main {
+			border: 1px solid black;
+			box-shadow: 10px 10px 5px #888;
+			border-radius: 12px;
+			padding: 5px;
+			background-color: #ddd;
+			margin: 5px;
+			width: 90%;
+			margin-left:auto;
+			margin-right:auto;  
+		}
+		
+		.logo {
+			width: 40%;
+			margin-left: auto;
+			margin-right: auto;
+			display: block;
+			padding: 15px;
+		}
 
-  <head>
-    <title>NodeJS Starter Application</title>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="stylesheets/style.css">
-  </head>
+		h3 {
+			margin-top: 4px;
+			margin-bottom: 2px;
+		}
+		
+		.container {
+			-webkit-perspective: 300; perspective: 300;
+		}
+	</style>
+	<script src="public/js/mqttws31.js"></script>
 
-  <body>
-    <table>
-      <tr>
-        <td style= "width:30%;">
-          <img class = "newappIcon" src="images/newapp-icon.png">
-        <td>
-            <h1>Hi there!</h1>
-          <p>Thanks for creating a
-            <span class = "blue">NodeJS Starter Application</span>.
-            Get started by reading our
-            <a href = "https://www.ng.bluemix.net/docs/#starters/nodejs/index.html#nodejs">documentation</a>
-            or use the Start Coding guide under your app in your dashboard.
-    </table>
-  </body>
+</head>
+<body>
+	<div class="main">
+			<h3>IoT Foundation Connection</h3>
+			<table>
+				<tr>
+					<td id="connStatus">Disconnected</td>
+				</tr>
+				<tr>
+					<td id="devId"></td>
+				</tr>
+			</table>
+			<h3>Device Orientation</h3>
+			<table>
+				<tr>
+					<td id="doEvent"></td>
+				</tr>
+				<tr>
+					<td>Tilt Left/Right</td>
+					<td id="doTiltLR"></td>
+				</tr>
+				<tr>
+					<td>Tilt Front/Back</td>
+					<td id="doTiltFB"></td>
+				</tr>
+				<tr>
+					<td>Direction</td>
+					<td id="doDirection"></td>
+				</tr>
+			</table>
+			<h3>Device Acceleration</h3>
+			<table>
+				<tr>
+					<td id="acEvent"></td>
+				</tr>
+				<tr>
+					<td>Acceleration</td>
+					<td id="acAccel"></td>
+				</tr>
+				<tr>
+					<td>Rotation Rate</td>
+					<td id="acRotation"></td>
+				</tr>
+			</table>
+	</div>
+	
+	<div class="container" style="-webkit-perspective: 300; perspective: 300;">
+		<img src="public/images/iot.svg" id="imgLogo" class="logo">
+	</div>
+	
+	<div id="register" style="display: none;text-align: center">
+		<button onclick="register()">Register</button>
+	</div>
 
+	<div id="cleardata" style="display: none;text-align: center">
+		<button onclick="clearData()">Clear Registration</button>
+	</div>
+	
+	<script type="text/javascript">
+		var client;
+		var iotfData = {};
+		var qsMode = true;
+		var msgInterval;
+		var pubTopic = 'iot-2/evt/status/fmt/json';
+		var subTopic = 'iot-2/cmd/buzz/fmt/json'
+		var phoneData = {};
+		phoneData.d = {};
+
+		phoneData.toJson = function() {
+			return JSON.stringify(this);
+		}
+
+		phoneData.publish = function() {
+			//console.log("publishing");
+			var message = new Paho.MQTT.Message(phoneData.toJson());
+			message.destinationName = pubTopic;
+			client.send(message);
+		}
+
+		init();
+
+		function register() {
+			var xhr = new XMLHttpRequest();
+			xhr.open('get', '/register');
+ 
+			xhr.onreadystatechange = function() {
+				if(xhr.readyState === 4)  {
+					if(xhr.status === 200) {
+						resp = JSON.parse(xhr.responseText)
+						localStorage.setItem("iotf", true);
+						localStorage.setItem("clientId", resp.uuid);
+						localStorage.setItem("org", resp.uuid.split(":")[1]);
+						localStorage.setItem("deviceType", resp.type);
+						localStorage.setItem("deviceId", resp.id);
+						localStorage.setItem("password", resp.password);
+
+						client.disconnect();
+						location.reload();
+					}
+				}
+			}
+			xhr.send(null);
+		}
+
+		function clearData() {
+			var xhr = new XMLHttpRequest();
+			xhr.open('get', '/unregister?type=' + iotfData.deviceType + '&id=' + iotfData.deviceId);
+ 
+			xhr.onreadystatechange = function() {
+				if(xhr.readyState === 4)  {
+					localStorage.removeItem("iotf");
+					localStorage.removeItem("clientId");
+					localStorage.removeItem("org");
+					localStorage.removeItem("deviceType");
+					localStorage.removeItem("deviceId");
+					localStorage.removeItem("password");
+
+					location.reload();
+				}
+			}
+			xhr.send(null);
+		}
+		
+		function init() {
+			if (localStorage && ('iotf' in localStorage)) {
+				iotfData.clientId = localStorage.getItem("clientId");
+				iotfData.org = localStorage.getItem("org");
+				iotfData.deviceType = localStorage.getItem("deviceType");
+				iotfData.deviceId = localStorage.getItem("deviceId");
+				iotfData.password = localStorage.getItem("password");
+				phoneData.d.deviceId = iotfData.deviceId
+				qsMode = false;
+				document.getElementById("register").style.display="none";
+				document.getElementById("cleardata").style.display="block";
+			} else {
+				iotfData.deviceId = new Date().getTime().toString().substring(1, 13);
+				iotfData.deviceType = "phone-sensor"
+				iotfData.clientId = "d:quickstart:phone-sensor:" + iotfData.deviceId;
+				if (localStorage) {
+					document.getElementById("register").style.display="block";
+					document.getElementById("cleardata").style.display="none";
+				}
+			}
+
+			if (window.DeviceOrientationEvent) {
+				// Listen for the deviceorientation event and handle the raw data
+				window.addEventListener('deviceorientation', function(eventData) {
+					// gamma is the left-to-right tilt in degrees, where right is positive
+					var tiltLR = eventData.gamma;
+					
+					// beta is the front-to-back tilt in degrees, where front is positive
+					var tiltFB = eventData.beta;
+					
+					// alpha is the compass direction the device is facing in degrees
+					var dir = eventData.alpha
+					
+					// call our orientation event handler
+					deviceOrientationHandler(tiltLR, tiltFB, dir);
+					}, false);
+			} else {
+				document.getElementById("doEvent").innerHTML = "Not supported."
+			};
+
+			if (window.DeviceMotionEvent) {
+				window.addEventListener('devicemotion', deviceMotionHandler, false);
+			} else {
+				document.getElementById("acEvent").innerHTML = "Not supported."
+			};
+
+			if (qsMode) {
+				client = new Paho.MQTT.Client("ws://quickstart.messaging.internetofthings.ibmcloud.com:1883/", iotfData.clientId);
+				client.onConnectionLost = onConnectionLost;
+				client.connect({onSuccess: onConnect,
+								onFailure: onConnectFailure});
+			} else {
+				client = new Paho.MQTT.Client("wss://" + iotfData.org + ".messaging.internetofthings.ibmcloud.com:8883/", iotfData.clientId);
+				client.onConnectionLost = onConnectionLost;
+				client.onMessageArrived = onMessageArrived;
+				client.connect({onSuccess: onConnect,
+								onFailure: onConnectFailure,
+								userName: 'use-token-auth',
+								password: iotfData.password,
+								useSSL: true});
+			}
+		}
+
+		function onMessageArrived(message) {
+			console.log(message.payloadString);
+			if ("vibrate" in navigator) {
+				payload = JSON.parse(message.payloadString);
+				if (!isNaN(payload.buzz)) {
+					navigator.vibrate(payload.buzz);
+				}
+			}
+		}
+
+		function onConnect() {
+			var connStatus = document.getElementById("connStatus");
+			var devId = document.getElementById("devId");
+			connStatus.innerHTML = 'Connected';
+			devId.innerHTML = iotfData.clientId;
+			console.log("Connected");
+			msgInterval = window.setInterval(phoneData.publish, 250);
+			if (!qsMode) {
+				client.subscribe(subTopic);
+			}
+			//console.log(msgInterval);
+		}
+
+		function onConnectFailure(error) {
+			connStatus.innerHTML = 'Connect Failed';
+			console.log("Connect Failed");
+			console.log(error.errorCode);
+			console.log(error.errorMessage);
+		}
+
+		function onConnectionLost(response) {
+			connStatus.innerHTML = 'Disconnected';
+			console.log("onConnectionLost")
+			if (response.errorCode !== 0) {
+					console.log("onConnectionLost:"+response.errorMessage);
+			}
+			clearInterval(msgInterval);
+			if (qsMode) {
+				client.connect({onSuccess: onConnect,
+								onFailure: onConnectFailure});
+			} else {
+				client.connect({onSuccess: onConnect,
+								onFailure: onConnectFailure,
+								userName: 'use-token-auth',
+								password: iotfData[1],
+								useSSL: true});
+			}
+		}
+	
+		function deviceOrientationHandler(tiltLR, tiltFB, dir) {
+			phoneData.d.tiltLR = Math.round(tiltLR);
+			phoneData.d.tiltFB = Math.round(tiltFB);
+			phoneData.d.direction = Math.round(dir);
+
+			document.getElementById("doTiltLR").innerHTML = Math.round(tiltLR);
+			document.getElementById("doTiltFB").innerHTML = Math.round(tiltFB);
+			document.getElementById("doDirection").innerHTML = Math.round(dir);
+			
+			// Apply the transform to the image
+			var logo = document.getElementById("imgLogo");
+			logo.style.webkitTransform = "rotate("+ tiltLR +"deg) rotate3d(1,0,0, "+ (tiltFB*-1)+"deg)";
+			logo.style.MozTransform = "rotate("+ tiltLR +"deg)";
+			logo.style.transform = "rotate("+ tiltLR +"deg) rotate3d(1,0,0, "+ (tiltFB*-1)+"deg)";
+		}
+		
+		function deviceMotionHandler(eventData) {
+			var info, xyz = "[X, Y, Z]";
+
+			var acceleration = eventData.acceleration;
+			var accelX = Math.round(acceleration.x * 100) / 100;
+			var accelY = Math.round(acceleration.y * 100) / 100;
+			var accelZ = Math.round(acceleration.z * 100) / 100;
+
+			var rotation = eventData.rotationRate;
+			var rotateX = Math.round(rotation.alpha * 100) / 100;
+			var rotateY = Math.round(rotation.beta * 100) / 100;
+			var rotateZ = Math.round(rotation.gamma * 100) / 100;
+
+			// Grab the acceleration from the results
+			phoneData.d.accelX = accelX;
+			phoneData.d.accelY = accelY;
+			phoneData.d.accelZ = accelZ;
+
+			info = xyz.replace("X", accelX);
+			info = info.replace("Y", accelY);
+			info = info.replace("Z", accelZ);
+			document.getElementById("acAccel").innerHTML = info;
+
+			// Grab the rotation rate from the results
+			phoneData.d.rotationX = rotateX;
+			phoneData.d.rotationY = rotateY;
+			phoneData.d.rotationZ = rotateZ;
+
+			info = xyz.replace("X", rotateX);
+			info = info.replace("Y", rotateY);
+			info = info.replace("Z", rotateZ);
+			document.getElementById("acRotation").innerHTML = info;     
+		}
+	</script>
+
+</body>
 </html>
